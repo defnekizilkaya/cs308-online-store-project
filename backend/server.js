@@ -10,15 +10,14 @@ app.use(express.json());
 
 // Routes
 const healthRoutes = require('./src/routes/healthRoutes');
-app.use('/api', healthRoutes);
+const authRoutes   = require('./src/routes/authRoutes');   // <-- VAR
+
+app.use('/api',      healthRoutes);  // /api/health
+app.use('/api/auth', authRoutes);    // /api/auth/register, /api/auth/login
 
 // Root
-app.get('/', (req, res) => {
-  res.send('CS308 Online Store Backend is running.');
-});
+app.get('/', (req, res) => res.send('CS308 Online Store Backend is running.'));
 
-// Start server
+// Start
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`✅ Server listening on http://localhost:${PORT}`);
-});
+app.listen(PORT, () => console.log(`✅ Server listening on http://localhost:${PORT}`));
