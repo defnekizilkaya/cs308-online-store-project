@@ -1,12 +1,35 @@
 const Product = require('../models/product.model');
 
-// GET /api/products 
+// GET /api/products?search=shirt&sort=price_asc&category_id=1&page=1&limit=10
 exports.getAllProducts = async (req, res) => {
   try {
-    const { page = 1, limit = 10 } = req.query;
-    const products = await Product.findAll(page, limit);
-    res.json({ success: true, data: products });
+    const { 
+      page = 1, 
+      limit = 100,
+      search = '',
+      sort = '',
+      category_id = null
+    } = req.query;
+
+    const options = {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      search: search.trim(),
+      sort,
+      category_id: category_id ? parseInt(category_id) : null
+    };
+
+    const products = await Product.findAll(options);
+    
+    res.json({ 
+      success: true, 
+      data: products,
+      count: products.length,
+      page: options.page,
+      limit: options.limit
+    });
   } catch (error) {
+    console.error('Error in getAllProducts:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 };

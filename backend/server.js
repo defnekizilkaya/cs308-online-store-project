@@ -1,39 +1,38 @@
-// backend/server.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 
 // Routes
 const healthRoutes  = require('./src/routes/healthRoutes');
-const authRoutes    = require('./src/routes/authRoutes');
-const cartRoutes    = require('./src/routes/cartRoutes');
+// const authRoutes    = require('./src/routes/authRoutes');
+// const cartRoutes    = require('./src/routes/cartRoutes');
 const productRoutes = require('./src/routes/product.routes');
-const orderRoutes   = require('./src/routes/orderRoutes');
-
+// const orderRoutes   = require('./src/routes/orderRoutes');
 
 const app = express();
 
-// Middlewares
+
 app.use(cors());
+
+// Middlewares
 app.use(express.json());
 
 // Routes mount
 app.use('/api',         healthRoutes);
-app.use('/api/auth',    authRoutes);
-app.use('/api',         cartRoutes);
+// app.use('/api/auth',    authRoutes);
+// app.use('/api',         cartRoutes);
 app.use('/api/products', productRoutes);
-app.use('/api/orders',   orderRoutes);
-
+// app.use('/api/orders',   orderRoutes);
 
 // Root
 app.get('/', (req, res) =>
   res.send('CS308 Online Store Backend is running.')
 );
 
-// (opsiyonel) 404 & error handler
+// 404 & error handler
 app.use((req, res) => res.status(404).json({ message: 'Not found' }));
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`✅ Server listening on http://localhost:${PORT}`);
 });
