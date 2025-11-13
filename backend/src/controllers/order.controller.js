@@ -4,6 +4,24 @@
 
 const knex = require("../db/knex");
 
+const mapOrderRecord = (order, itemsMap) => {
+  const items = itemsMap.get(order.id) || [];
+  return {
+    id: order.id,
+    status: order.status,
+    totalPrice: order.total_price !== undefined ? Number(order.total_price) : null,
+    address: order.address || null,
+    createdAt: order.created_at,
+    items: items.map((item) => ({
+      id: item.id,
+      productId: item.product_id,
+      quantity: Number(item.quantity),
+      unitPrice: Number(item.price),
+      totalPrice: Number(item.price) * Number(item.quantity),
+    })),
+  };
+};
+
 exports.createOrder = async (req, res) => {
   const userId = req.body.userId;
   const address = req.body.address || "";
@@ -75,6 +93,79 @@ exports.createOrder = async (req, res) => {
     return res.status(201).json({ success: true, data: createdOrder });
   } catch (err) {
     console.error("[createOrder] error:", err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+exports.getOrders = async (req, res) => {
+  const userId = req.user?.id || req.user?.sub;
+  if (!userId) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  try {
+    const orders = await knex("orders")
+      .where({ user_id: userId })
+      .orderBy("created_at", "desc");
+
+    if (orders.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const orderIds = orders.map((order) => order.id);
+    const orderItems = await knex("order_items")
+      .whereIn("order_id", orderIds)
+      .orderBy("id", "asc");
+
+    const itemsMap = orderItems.reduce((acc, item) => {
+      if (!acc.has(item.order_id)) {
+        acc.set(item.order_id, []);
+      }
+      acc.get(item.order_id).push(item);
+      return acc;
+    }, new Map());
+
+    const data = orders.map((order) => mapOrderRecord(order, itemsMap));
+
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error("[getOrders] error:", err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+exports.getOrderById = async (req, res) => {
+  const userId = req.user?.id || req.user?.sub;
+  if (!userId) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  const orderId = Number(req.params.id);
+  if (!Number.isInteger(orderId)) {
+    return res.status(400).json({ message: "Invalid order id" });
+  }
+
+  try {
+    const order = await knex("orders")
+      .where({ user_id: userId, id: orderId })
+      .first();
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    const orderItems = await knex("order_items")
+      .where({ order_id: order.id })
+      .orderBy("id", "asc");
+
+    const itemsMap = new Map();
+    itemsMap.set(order.id, orderItems);
+
+    const data = mapOrderRecord(order, itemsMap);
+
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error("[getOrderById] error:", err);
     return res.status(500).json({ success: false, error: err.message });
   }
 };

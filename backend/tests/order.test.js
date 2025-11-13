@@ -2,7 +2,10 @@
 // Integration tests for creating orders from cart (SCRUM-21).
 // Assumes DB schema from init_schema migration (users, carts, cart_items, orders, order_items, products).
 
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
+
 const request = require('supertest');
+const jwt = require('jsonwebtoken');
 const app = require('../server');
 const knex = require('../src/db/knex');
 
@@ -12,6 +15,7 @@ describe('Order API Tests (SCRUM-21)', () => {
   let testCategoryId;
   let testProduct;      // { id, quantity_in_stock, price, ... }
   let createdOrderId;
+  let authToken;
 
   // Helper: ensure a test user exists to satisfy carts.user_id FK
   const ensureTestUser = async (id) => {
@@ -38,6 +42,12 @@ describe('Order API Tests (SCRUM-21)', () => {
 
     // Ensure the FK parent exists (users.id)
     await ensureTestUser(TEST_USER_ID);
+
+    authToken = jwt.sign(
+      { id: TEST_USER_ID, email: `test${TEST_USER_ID}@example.com`, role: 'customer' },
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
 
     // Seed a category
     const [category] = await knex('categories')
@@ -130,6 +140,54 @@ describe('Order API Tests (SCRUM-21)', () => {
     if (res.body.data.status) {
       expect(res.body.data.status).toBe('processing');
     }
+  });
+
+  test('GET /api/orders - returns orders for authenticated user', async () => {
+    const res = await request(app)
+      .get('/api/orders')
+      .set('Authorization', `Bearer ${authToken}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data.length).toBeGreaterThan(0);
+
+    const [order] = res.body.data;
+    expect(order).toHaveProperty('id');
+    expect(order).toHaveProperty('items');
+    expect(Array.isArray(order.items)).toBe(true);
+    if (order.items.length > 0) {
+      expect(order.items[0]).toMatchObject({
+        productId: testProduct.id,
+        quantity: 2,
+      });
+    }
+  });
+
+  test('GET /api/orders/:id - returns single order with items', async () => {
+    const res = await request(app)
+      .get(`/api/orders/${createdOrderId}`)
+      .set('Authorization', `Bearer ${authToken}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data).toMatchObject({
+      id: createdOrderId,
+      totalPrice: 100,
+    });
+    expect(Array.isArray(res.body.data.items)).toBe(true);
+    expect(res.body.data.items[0]).toMatchObject({
+      productId: testProduct.id,
+      quantity: 2,
+    });
+  });
+
+  test('GET /api/orders/:id - returns 404 for missing order', async () => {
+    const res = await request(app)
+      .get('/api/orders/999999')
+      .set('Authorization', `Bearer ${authToken}`);
+
+    expect(res.statusCode).toBe(404);
   });
 
   // TEST 3: Stock should decrease (10 -> 8)
