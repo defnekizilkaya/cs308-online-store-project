@@ -1,60 +1,145 @@
 const CartModel = require('../models/cartModel');
 const CartItemModel = require('../models/cartItemModel');
-const pool = require('../config/db');
+
+const parseQuantity = (value) => {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+};
+
+const ensureOwnership = (resourceUserId, reqUserId) => {
+  if (!resourceUserId || !reqUserId) {
+    return false;
+  }
+  return Number(resourceUserId) === Number(reqUserId);
+};
 
 exports.getCart = async (req, res) => {
-  const userId = req.params.userId; // şimdilik parametreyle
+  const userId = req.user?.id || req.user?.sub;
+  if (!userId) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
   try {
     const cart = await CartModel.getUserCart(userId);
-    if (!cart.length) return res.json({ items: [], total_price: 0 });
-    const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    res.json({ items: cart, total_price: total });
+    const items = cart.map((item) => ({
+      id: item.item_id,
+      productId: item.product_id,
+      name: item.name,
+      quantity: Number(item.quantity),
+      unitPrice: Number(item.price),
+      totalPrice: Number(item.price) * Number(item.quantity),
+    }));
+
+    const total = items.reduce((sum, item) => sum + item.totalPrice, 0);
+    res.json({ items, total_price: total });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
 exports.addToCart = async (req, res) => {
-  const { userId, productId, quantity } = req.body;
+  const userId = req.user?.id || req.user?.sub;
+  if (!userId) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
+  const { productId, quantity } = req.body || {};
+  const parsedQuantity = parseQuantity(quantity);
+  if (!productId || !parsedQuantity) {
+    return res.status(400).json({ message: 'productId and positive quantity are required' });
+  }
+
   try {
-    // stok kontrolü
-    const stockCheck = await pool.query(`SELECT quantity_in_stock FROM products WHERE id = $1`, [productId]);
-    if (!stockCheck.rows.length || stockCheck.rows[0].quantity_in_stock < quantity)
-      return res.status(400).json({ error: 'Not enough stock' });
+    const cart = await CartModel.ensureCart(userId);
+    const item = await CartItemModel.addOrUpdateItem(cart.id, productId, parsedQuantity);
 
-    // kullanıcı cart’ı var mı
-    const userCart = await CartModel.getUserCart(userId);
-    let cartId;
-    if (userCart.length === 0) {
-      const newCart = await CartModel.createCart(userId);
-      cartId = newCart.id;
-    } else {
-      cartId = userCart[0].cart_id;
-    }
+    const responseItem = {
+      id: item.id,
+      productId: item.product_id,
+      name: item.name,
+      quantity: Number(item.quantity),
+      unitPrice: Number(item.price),
+      totalPrice: Number(item.price) * Number(item.quantity),
+    };
 
-    const item = await CartItemModel.addItem(cartId, productId, quantity);
-    res.json(item);
+    res.status(201).json(responseItem);
   } catch (err) {
+    if (err.code === '23514' || err.code === '23503') {
+      return res.status(400).json({ message: 'Invalid product or quantity' });
+    }
     res.status(500).json({ error: err.message });
   }
 };
 
 exports.updateQuantity = async (req, res) => {
-  const { quantity } = req.body;
-  const { id } = req.params;
+  const userId = req.user?.id || req.user?.sub;
+  if (!userId) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
+  const { quantity } = req.body || {};
+  const parsedQuantity = parseQuantity(quantity);
+  if (!parsedQuantity) {
+    return res.status(400).json({ message: 'Quantity must be a positive integer' });
+  }
+
+  const itemId = Number(req.params.id);
+  if (!Number.isInteger(itemId)) {
+    return res.status(400).json({ message: 'Invalid cart item id' });
+  }
+
   try {
-    const item = await CartItemModel.updateItemQuantity(id, quantity);
-    res.json(item);
+    const existing = await CartItemModel.getItemWithCart(itemId);
+    if (!existing) {
+      return res.status(404).json({ message: 'Cart item not found' });
+    }
+
+    if (!ensureOwnership(existing.user_id, userId)) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    const updated = await CartItemModel.updateItemQuantity(itemId, parsedQuantity);
+    const responseItem = {
+      id: updated.id,
+      productId: updated.product_id,
+      name: updated.name,
+      quantity: Number(updated.quantity),
+      unitPrice: Number(updated.price),
+      totalPrice: Number(updated.price) * Number(updated.quantity),
+    };
+
+    res.json(responseItem);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
 exports.removeItem = async (req, res) => {
-  const { id } = req.params;
+  const userId = req.user?.id || req.user?.sub;
+  if (!userId) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
+  const itemId = Number(req.params.id);
+  if (!Number.isInteger(itemId)) {
+    return res.status(400).json({ message: 'Invalid cart item id' });
+  }
+
   try {
-    const result = await CartItemModel.removeItem(id);
-    res.json(result);
+    const existing = await CartItemModel.getItemWithCart(itemId);
+    if (!existing) {
+      return res.status(404).json({ message: 'Cart item not found' });
+    }
+
+    if (!ensureOwnership(existing.user_id, userId)) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    await CartItemModel.removeItem(itemId);
+    res.json({ message: 'Item removed' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
