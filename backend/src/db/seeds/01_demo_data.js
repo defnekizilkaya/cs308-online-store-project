@@ -445,16 +445,25 @@ exports.seed = async function (knex) {
     ];
 
     const productsToInsert = baseProducts.map((product, index) => ({
-      ...product,
-      image_url: imageUrlFor(product.serial_number, index),
+      name: product.name,
+      model: product.model,
+      serial_number: product.serial_number,
+      description: product.description,
+      price: product.price,
+      category_id: product.category_id,
+      stock: product.quantity_in_stock,
+      warranty_status: product.warranty_status ? 'active' : 'none',
+      distributor_info: product.distributor,
+      image_url: imageUrlFor(product.serial_number, index), // ✅
     }));
-
+    
     const productRows = await trx('products')
-      .insert(productsToInsert, ['id', 'name', 'price', 'quantity_in_stock']);
+      .insert(productsToInsert, ['id', 'name', 'price', 'stock']);
+     
 
     const productByName = Object.fromEntries(
       productRows.map((row) => [row.name, row])
-    );
+    );    
 
     const [ayseCartId, baranCartId] = await trx('carts')
       .insert(
